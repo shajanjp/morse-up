@@ -56,21 +56,43 @@ void saveScores() {
   }
 
   File file = LittleFS.open("/scores.json", "w");
-  serializeJson(doc, file);
+  if (!file) {
+    Serial.println("Failed to open file for writing");
+    return;
+  }
+  if (serializeJson(doc, file) == 0) {
+    Serial.println("Failed to write to file");
+  }
   file.close();
+  Serial.println("Scores saved");
 }
 
 void loadScores() {
-  if (!LittleFS.exists("/scores.json")) return;
+  if (!LittleFS.exists("/scores.json")) {
+    Serial.println("No score file found");
+    return;
+  }
 
   File file = LittleFS.open("/scores.json", "r");
+  if (!file) {
+    Serial.println("Failed to open file for reading");
+    return;
+  }
+  
   DynamicJsonDocument doc(2048);
-  deserializeJson(doc, file);
+  DeserializationError error = deserializeJson(doc, file);
+  if (error) {
+    Serial.print("deserializeJson() failed: ");
+    Serial.println(error.f_str());
+    file.close();
+    return;
+  }
 
   for (auto &item : items) {
     item.score = doc[String(item.character)] | 0;
   }
   file.close();
+  Serial.println("Scores loaded");
 }
 
 // ================= QUEUE =================
@@ -79,12 +101,25 @@ void initQueue() {
   for (int i = 0; i < items.size(); i++) {
     queue.push_back(i);
   }
+  // Fisher-Yates shuffle
+  for (int i = queue.size() - 1; i > 0; i--) {
+    int j = random(i + 1);
+    int temp = queue[i];
+    queue[i] = queue[j];
+    queue[j] = temp;
+  }
 }
 
 void reinsert(int idx) {
-  int count = min(items[idx].score + 1, MAX_REINSERT);
-  for (int i = 0; i < count; i++) {
-    queue.push_back(idx);
+  // Insert at a random position soon (between index 0 and 4) to ensure frequent appearance
+  int maxPos = min((int)queue.size(), 4);
+  int pos = random(0, maxPos + 1);
+  queue.insert(queue.begin() + pos, idx);
+
+  // Also add another copy a bit later (between index 5 and 10) to reinforce learning
+  if (queue.size() > 6) {
+    int pos2 = random(5, min((int)queue.size(), 10) + 1);
+    queue.insert(queue.begin() + pos2, idx);
   }
 }
 
@@ -99,7 +134,7 @@ bool isPrefix(String input, const char* target) {
 int getProgress() {
   int learned = 0;
   for (auto &item : items) {
-    if (item.score == 0) learned++;
+    if (item.score > 0) learned++;
   }
   return (learned * 100) / items.size();
 }
@@ -108,12 +143,12 @@ int getProgress() {
 void render() {
   M5.Display.startWrite();
   M5.Display.fillScreen(BLACK);
-  M5.Display.setTextColor(TFT_WHITE); 
+  M5.Display.setTextColor(TFT_WHITE);
 
   // Progress
-  M5.Display.setTextSize(1);
+  M5.Display.setTextSize(2);
   M5.Display.setTextDatum(middle_center);
-  M5.Display.drawString(String(getProgress()) + "%", M5.Display.width() / 2, 10);
+  M5.Display.drawString(String(getProgress()) + "%", M5.Display.width() / 2, 12);
 
   // Character
   M5.Display.setTextSize(4);
@@ -124,14 +159,14 @@ void render() {
   M5.Display.setTextSize(2);
   M5.Display.setTextDatum(middle_center);
   if (!isPrefixCorrect) {
-    M5.Display.setTextColor(TFT_RED); 
+    M5.Display.setTextColor(TFT_RED);
   }
   M5.Display.drawString(currentInput, M5.Display.width() / 2, 90);
 
   // Correct answer display
   if (!isPrefixCorrect || state == FEEDBACK) {
     M5.Display.setTextSize(2);
-    M5.Display.setTextColor(TFT_GREEN); 
+    M5.Display.setTextColor(TFT_GREEN);
     M5.Display.drawString(String(items[currentIndex].morse), M5.Display.width() / 2, 110);
   }
 
@@ -157,11 +192,12 @@ void validate() {
 
   isCorrect = (currentInput == correct);
 
-  if (!isCorrect) {
+  if (isCorrect) {
     items[currentIndex].score++;
+  } else {
     reinsert(currentIndex);
-    saveScores();
   }
+  saveScores();
 
   state = FEEDBACK;
   feedbackStart = millis();
@@ -174,10 +210,20 @@ void setup() {
   auto cfg = M5.config();
   M5.begin(cfg);
 
+  Serial.begin(115200);
+  delay(1000); 
+
+  randomSeed(esp_random());
+
   pinMode(DOT_PIN, INPUT_PULLUP);
   pinMode(DASH_PIN, INPUT_PULLUP);
 
-  LittleFS.begin();
+  if (!LittleFS.begin(true)) {
+    Serial.println("LittleFS Mount Failed, but formatted");
+  } else {
+    Serial.println("LittleFS Mounted");
+  }
+  
   loadScores();
   initQueue();
 
@@ -250,9 +296,9 @@ void loop() {
   else if (state == FEEDBACK) {
     // Reset internal button state for next item
     // (Static vars inside if(state==INPUT_STATE) might need to be reset
-    // if we want to be perfectly safe, but since BtnA.wasReleased() 
+    // if we want to be perfectly safe, but since BtnA.wasReleased()
     // and pressedFor() are stateful in M5Unified, it's generally fine).
-    
+
     if (millis() - feedbackStart > FEEDBACK_DURATION) {
       startNext();
     }
