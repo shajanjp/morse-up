@@ -10,6 +10,7 @@
 #define INPUT_TIMEOUT 2000
 #define FEEDBACK_DURATION 2000
 #define MAX_REINSERT 5
+#define DASH_THRESHOLD 400
 
 // ================= DATA =================
 struct MorseItem {
@@ -130,7 +131,7 @@ void render() {
   // Correct answer display
   if (!isPrefixCorrect || state == FEEDBACK) {
     M5.Display.setTextSize(2);
-    M5.Display.setTextColor(TFT_GREEN);   // red text
+    M5.Display.setTextColor(TFT_GREEN); 
     M5.Display.drawString(String(items[currentIndex].morse), M5.Display.width() / 2, 110);
   }
 
@@ -189,23 +190,44 @@ void loop() {
 
   // INPUT STATE
   if (state == INPUT_STATE) {
-    bool dotPressed = digitalRead(DOT_PIN) == LOW;
-    bool dashPressed = digitalRead(DASH_PIN) == LOW;
+    // --- External Buttons (Non-blocking) ---
+    static bool dotWasPressed = false;
+    static bool dashWasPressed = false;
+    bool dotIsPressed = digitalRead(DOT_PIN) == LOW;
+    bool dashIsPressed = digitalRead(DASH_PIN) == LOW;
 
-    if (dotPressed) {
+    if (dotIsPressed && !dotWasPressed) {
       currentInput += ".";
       lastInputTime = millis();
       needsRedraw = true;
-
-      while (digitalRead(DOT_PIN) == LOW); // wait release
     }
+    dotWasPressed = dotIsPressed;
 
-    if (dashPressed) {
+    if (dashIsPressed && !dashWasPressed) {
       currentInput += "_";
       lastInputTime = millis();
       needsRedraw = true;
+    }
+    dashWasPressed = dashIsPressed;
 
-      while (digitalRead(DASH_PIN) == LOW); // wait release
+    // --- Internal Button (GPIO 41) ---
+    static bool internalDashTriggered = false;
+    if (M5.BtnA.pressedFor(DASH_THRESHOLD)) {
+      if (!internalDashTriggered) {
+        currentInput += "_";
+        lastInputTime = millis();
+        needsRedraw = true;
+        internalDashTriggered = true;
+      }
+    }
+    if (M5.BtnA.wasReleased()) {
+      if (!internalDashTriggered) {
+        // Short press detected on release
+        currentInput += ".";
+        lastInputTime = millis();
+        needsRedraw = true;
+      }
+      internalDashTriggered = false;
     }
 
     // Prefix check
@@ -226,6 +248,11 @@ void loop() {
 
   // FEEDBACK STATE
   else if (state == FEEDBACK) {
+    // Reset internal button state for next item
+    // (Static vars inside if(state==INPUT_STATE) might need to be reset
+    // if we want to be perfectly safe, but since BtnA.wasReleased() 
+    // and pressedFor() are stateful in M5Unified, it's generally fine).
+    
     if (millis() - feedbackStart > FEEDBACK_DURATION) {
       startNext();
     }
