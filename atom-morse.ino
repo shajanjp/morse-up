@@ -78,7 +78,7 @@ void loadScores() {
     Serial.println("Failed to open file for reading");
     return;
   }
-  
+
   DynamicJsonDocument doc(2048);
   DeserializationError error = deserializeJson(doc, file);
   if (error) {
@@ -121,6 +121,16 @@ void reinsert(int idx) {
     int pos2 = random(5, min((int)queue.size(), 10) + 1);
     queue.insert(queue.begin() + pos2, idx);
   }
+}
+
+// ================= RESET =================
+void resetAllScores() {
+  for (auto &item : items) {
+    item.score = 0;
+  }
+  saveScores();
+  initQueue();
+  startNext();
 }
 
 // ================= UTILS =================
@@ -211,7 +221,7 @@ void setup() {
   M5.begin(cfg);
 
   Serial.begin(115200);
-  delay(1000); 
+  delay(1000);
 
   randomSeed(esp_random());
 
@@ -223,7 +233,7 @@ void setup() {
   } else {
     Serial.println("LittleFS Mounted");
   }
-  
+
   loadScores();
   initQueue();
 
@@ -233,6 +243,12 @@ void setup() {
 // ================= LOOP =================
 void loop() {
   M5.update();
+
+  // Global Reset Check
+  if (M5.BtnA.pressedFor(5000)) {
+    resetAllScores();
+    return;
+  }
 
   // INPUT STATE
   if (state == INPUT_STATE) {
