@@ -8,7 +8,7 @@
 #define DASH_PIN 2
 
 #define INPUT_TIMEOUT 2000
-#define FEEDBACK_DURATION 2000
+#define FEEDBACK_DURATION 2000/Users/shajanjp/Documents/Arduino/atom-morse/data/mark.md
 #define MAX_REINSERT 5
 #define DASH_THRESHOLD 400
 
@@ -156,7 +156,7 @@ void render() {
   M5.Display.setTextColor(TFT_WHITE);
 
   // Progress
-  M5.Display.setTextSize(2);
+  M5.Display.setTextSize(1);
   M5.Display.setTextDatum(middle_center);
   M5.Display.drawString(String(getProgress()) + "%", M5.Display.width() / 2, 12);
 
